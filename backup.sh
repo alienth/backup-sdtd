@@ -30,17 +30,6 @@ fi
 now=$(date '+%s')
 setname="$1"
 
-# Path based on hardcoded settings in the Dockerfile and linuxgsm.sh
-update_lock_file=/app/lgsm/lock/update.lock
-
-wait_for_update () {
-    while [ -f "$update_lock_file" ]; do
-        echo "Update lock file present. waiting for linuxgsm update..."
-        sleep 5
-    done
-}
-export -f wait_for_update
-
 get_replica_count () {
     kubectl get sts "$setname" -o=jsonpath='{.status.replicas}'
 }
@@ -86,14 +75,10 @@ backup_saves () {
     tar -C "$SAVE_DIR/Saves" -czvf "save_data-${now}.tgz" ./
 }
 
-if ! timeout 30s /usr/bin/bash -c "wait_for_update"; then
-    echo "Timed out waiting for update to complete." >&2
-    exit 1
-fi
 
 current_replicas="$(get_replica_count)"
 scale_down
-trap 'scale_up $current_replicas' EXIT
+trap "scale_up $current_replicas" EXIT
 
 shopt -s nullglob
 for world_dir in "${SAVE_DIR}/GeneratedWorlds/"*/; do
