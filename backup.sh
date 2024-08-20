@@ -2,7 +2,7 @@
 
 set -e
 
-PRESERVE_DAYS="$PRESERVE_DAYS:-30"
+PRESERVE_DAYS="${PRESERVE_DAYS:-30}"
 
 if [[ -z "$BACKUP_DIR" ]]; then
     echo "BACKUP_DIR must be set." >&2
@@ -22,22 +22,29 @@ fi
 mkdir -p "$BACKUP_DIR"
 cd "$BACKUP_DIR"
 
-if [[ $# -lt 2 ]]; then
+if [[ $# -lt 1 ]]; then
     echo "Usage: $0 <stateful_set_name>" >&2
+    exit 1
 fi
 
-today=$(date '+%Y-%m-%d')
+now=$(date '+%s')
 setname="$1"
 
-current_replicas=$(kubectl get sts -o=jsonpath='{.status.replicas}')
+get_replica_count () {
+    kubectl get sts "$setname" -o=jsonpath='{.status.replicas}'
+}
 
 scale_down () {
     echo "Scaling down $setname"
     kubectl scale sts "$setname" --replicas=0
+    while [[ "$(get_replica_count)" != "0" ]]; do
+        echo "Waiting for server to shut down.."
+        sleep 10
+    done
 }
 scale_up () {
     echo "Scaling up $setname"
-    kubectl scale sts "$setname" --replicas="$current_replicas"
+    kubectl scale sts "$setname" --replicas="$1"
 }
 
 prune () {
@@ -65,18 +72,18 @@ backup_world () {
 
 backup_saves () {
     echo "Backing up saves."
-    tar -C "$SAVE_DIR/Saves" -czvf "save_data-${today}.tgz" ./
+    tar -C "$SAVE_DIR/Saves" -czvf "save_data-${now}.tgz" ./
 }
 
 
+current_replicas="$(get_replica_count)"
 scale_down
-trap scale_up EXIT
+trap "scale_up $current_replicas" EXIT
 
 shopt -s nullglob
-for world_dir in "${SAVE_DIR}/GeneratedWorlds/*/"; do
+for world_dir in "${SAVE_DIR}/GeneratedWorlds/"*/; do
     backup_world "$world_dir"
 done
 
-backup_world
 backup_saves
 prune
